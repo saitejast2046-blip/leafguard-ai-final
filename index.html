@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LeafGuard AI - Prototype</title>
+<style>
+:root{--bg:#f4f7fb;--card:#fff;--tx:#0b1026;--mut:#5b6685;--ac:#0891b2;--acbg:#e0f7fb;--bd:#d9e0ee;--bad:#dc2626;--ok:#16a34a;--warn:#d97706;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1026;--card:#151e45;--tx:#fff;--mut:#a9b4d6;--ac:#22d3ee;--acbg:#0f2b4a;--bd:#26315f;--bad:#f87171;--ok:#4ade80;--warn:#fbbf24}}
+:root[data-theme="dark"]{--bg:#0b1026;--card:#151e45;--tx:#fff;--mut:#a9b4d6;--ac:#22d3ee;--acbg:#0f2b4a;--bd:#26315f;--bad:#f87171;--ok:#4ade80;--warn:#fbbf24}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Telugu","Noto Sans Devanagari",sans-serif;line-height:1.5}
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 40px}
+h1{margin:0;font-size:28px}h1 span{color:var(--ac)}
+.sub{color:var(--mut);margin:4px 0 18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:16px;margin-bottom:14px}
+.card h2{margin:0 0 10px;font-size:15px;color:var(--ac);text-transform:uppercase;letter-spacing:.05em}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+button,.btn{font:inherit;cursor:pointer;border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:9px 14px;border-radius:10px}
+button:hover,.btn:hover{border-color:var(--ac)}
+.pri{background:var(--ac);color:#04121a;border-color:var(--ac);font-weight:700}
+.on{background:var(--acbg);border-color:var(--ac);color:var(--ac);font-weight:600}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.cv{width:100%;aspect-ratio:1;background:#f2f2f2;border-radius:10px;border:1px solid var(--bd);display:block}
+.cap{font-size:13px;color:var(--mut);margin:6px 0 0;text-align:center}
+.res{display:none}.res.show{display:block}
+.name{font-size:26px;font-weight:800;margin:0}
+.stat{display:flex;justify-content:space-between;font-size:14px;color:var(--mut);margin-top:12px}
+.bar{height:12px;border-radius:6px;background:var(--bd);overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .8s,background .4s}
+.scan{display:none;color:var(--ac);font-weight:600}
+.note{font-size:13px;color:var(--mut)}
+.advice{background:var(--acbg);border-radius:10px;padding:12px;margin-top:12px;font-size:16px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Leaf<span>Guard</span> AI</h1>
+  <p class="sub">Prototype: check a crop leaf from a phone photo and get advice in your language.</p>
+
+  <div class="card">
+    <h2>1. Choose a leaf</h2>
+    <div class="row">
+      <button data-s="healthy">Sample: healthy</button>
+      <button data-s="blight">Sample: late blight</button>
+      <button data-s="rust">Sample: rust / yellowing</button>
+      <label class="btn">Take or upload photo<input id="file" type="file" accept="image/*" capture="environment" hidden></label>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h2>Input</h2><canvas id="src" class="cv" width="400" height="400"></canvas><p class="cap">Leaf photo</p></div>
+    <div class="card"><h2>Detected regions</h2><canvas id="out" class="cv" width="400" height="400"></canvas><p class="cap">Cyan outline = leaf found, red = uneven spots on the leaf only</p></div>
+  </div>
+
+  <div class="row" style="margin-bottom:14px;align-items:center">
+    <button id="go" class="pri">Analyze leaf</button>
+    <span id="scan" class="scan">Analyzing...</span>
+  </div>
+
+  <div id="res" class="card res">
+    <h2>Result</h2>
+    <p id="name" class="name"></p>
+    <div class="stat"><span>Affected leaf area</span><b id="pct"></b></div>
+    <div class="bar"><i id="fill"></i></div>
+    <div class="stat"><span>Severity</span><b id="sev"></b></div>
+    <div class="row" style="margin-top:14px" id="langs">
+      <button data-l="en" class="on">English</button>
+      <button data-l="te">తెలుగు</button>
+      <button data-l="hi">हिन्दी</button>
+    </div>
+    <div id="advice" class="advice"></div>
+  </div>
+
+  <p class="note">Prototype note: the leaf is first separated from the background, then only uneven spots on the leaf are measured. This is computed live in your browser, on-device, with no internet needed. The disease label comes from a rule-based stand-in that will be replaced by the trained MobileNetV3 (TensorFlow Lite) model. This is decision support, not a substitute for an agriculture officer.</p>
+</div>
+
+<script>
+const D={
+healthy:{n:{en:"Healthy leaf",te:"ఆరోగ్యంగా ఉంది",hi:"स्वस्थ पत्ती"},a:{en:"Leaf looks healthy. Keep monitoring weekly and maintain balanced watering.",te:"ఆకు ఆరోగ్యంగా ఉంది. వారానికి ఒకసారి పరిశీలించండి, సమతుల్యంగా నీరు పెట్టండి.",hi:"पत्ती स्वस्थ दिख रही है। हर हफ्ते निगरानी करें और संतुलित सिंचाई रखें।"}},
+blight:{n:{en:"Late Blight",te:"లేట్ బ్లైట్ (ఆలస్య తెగులు)",hi:"लेट ब्लाइट"},a:{en:"Remove and destroy infected leaves. Avoid overhead watering. Spray a copper-based fungicide as per the label and consult your local agriculture officer.",te:"సోకిన ఆకులను తొలగించి నాశనం చేయండి. పై నుండి నీరు పోయకండి. లేబుల్ ప్రకారం కాపర్ ఆధారిత శిలీంద్ర నాశనిని పిచికారీ చేయండి; స్థానిక వ్యవసాయ అధికారిని సంప్రదించండి.",hi:"संक्रमित पत्तियाँ हटाकर नष्ट करें। ऊपर से सिंचाई न करें। लेबल के अनुसार कॉपर-आधारित फफूंदनाशक का छिड़काव करें और स्थानीय कृषि अधिकारी से सलाह लें।"}},
+rust:{n:{en:"Rust / yellowing",te:"తుప్పు తెగులు / పసుపు మచ్చలు",hi:"रस्ट / पीले धब्बे"},a:{en:"Remove affected leaves, improve air flow between plants and apply a suitable fungicide. Check nutrient levels (nitrogen, iron).",te:"ప్రభావిత ఆకులను తొలగించండి, మొక్కల మధ్య గాలి ప్రసరణ పెంచండి, తగిన శిలీంద్ర నాశనిని వాడండి. నత్రజని, ఇనుము పోషకాల స్థాయిని పరిశీలించండి.",hi:"प्रभावित पत्तियाँ हटाएँ, पौधों के बीच हवा का प्रवाह बढ़ाएँ और उपयुक्त फफूंदनाशक लगाएँ। नाइट्रोजन और आयरन की जाँच करें।"}}
+};
+const $=id=>document.getElementById(id), src=$('src'), out=$('out'), sx=src.getContext('2d',{willReadFrequently:true}), ox=out.getContext('2d');
+let lang='en', last=null, loaded=false;
+
+function sample(t){
+  sx.fillStyle='#f2f2f2';sx.fillRect(0,0,400,400);
+  sx.save();sx.translate(200,200);sx.rotate(.3);
+  sx.fillStyle='#3fa34d';sx.beginPath();sx.ellipse(0,0,110,165,0,0,7);sx.fill();
+  sx.strokeStyle='#b7e4a5';sx.lineWidth=5;sx.beginPath();sx.moveTo(0,150);sx.lineTo(0,-150);sx.stroke();
+  sx.lineWidth=3;for(let y=-100;y<=100;y+=50){sx.beginPath();sx.moveTo(0,y);sx.lineTo(70,y-35);sx.moveTo(0,y);sx.lineTo(-70,y-35);sx.stroke()}
+  const spot=(x,y,r,c,halo)=>{if(halo){sx.fillStyle='#e8d23a';sx.beginPath();sx.arc(x,y,r*1.7,0,7);sx.fill()}sx.fillStyle=c;sx.beginPath();sx.arc(x,y,r,0,7);sx.fill()};
+  if(t==='blight'){[[-40,-70,26],[45,-20,32],[-30,40,22],[30,90,18],[-55,-10,14]].forEach(a=>spot(a[0],a[1],a[2],'#3b2313'))}
+  if(t==='rust'){[[-40,-70,14],[45,-20,18],[-30,40,12],[30,90,13],[5,-110,11],[-50,90,10]].forEach(a=>spot(a[0],a[1],a[2],'#d9781e',true))}
+  sx.restore();loaded=true;reset();
+}
+function reset(){$('res').classList.remove('show');ox.fillStyle='#f2f2f2';ox.fillRect(0,0,400,400)}
+
+document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>sample(b.dataset.s));
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{
+  sx.fillStyle='#f2f2f2';sx.fillRect(0,0,400,400);const k=Math.min(400/im.width,400/im.height),w=im.width*k,h=im.height*k;
+  sx.drawImage(im,(400-w)/2,(400-h)/2,w,h);loaded=true;reset();URL.revokeObjectURL(im.src)};im.src=URL.createObjectURL(f)};
+
+function hsv(r,g,b){r/=255;g/=255;b/=255;const m=Math.max(r,g,b),n=Math.min(r,g,b),d=m-n;let h=0;
+  if(d){h=m===r?((g-b)/d)%6:m===g?(b-r)/d+2:(r-g)/d+4;h*=60;if(h<0)h+=360}return[h,m?d/m:0,m]}
+
+const N=400;
+function dil(m,r){const t=new Uint16Array(N*N),o=new Uint8Array(N*N);
+ for(let y=0;y<N;y++){let c=0;for(let x=-r;x<N;x++){const a=x+r,d=x-r-1;if(a<N)c+=m[y*N+a];if(d>=0)c-=m[y*N+d];if(x>=0)t[y*N+x]=c}}
+ for(let x=0;x<N;x++){let c=0;for(let y=-r;y<N;y++){const a=y+r,d=y-r-1;if(a<N)c+=t[a*N+x];if(d>=0)c-=t[d*N+x];if(y>=0)o[y*N+x]=c>0?1:0}}
+ return o}
+const inv=m=>m.map(v=>1-v), ero=(m,r)=>inv(dil(inv(m),r));
+function largest(m){const seen=new Uint8Array(N*N),q=new Int32Array(N*N);let best=null;
+ for(let s=0;s<N*N;s++){if(!m[s]||seen[s])continue;let h=0,t=0;q[t++]=s;seen[s]=1;
+  while(h<t){const p=q[h++],x=p%N,y=(p/N)|0;
+   for(const n of [x>0?p-1:-1,x<N-1?p+1:-1,y>0?p-N:-1,y<N-1?p+N:-1])if(n>=0&&m[n]&&!seen[n]){seen[n]=1;q[t++]=n}}
+  if(!best||t>best.length)best=Array.from(q.subarray(0,t))}
+ const o=new Uint8Array(N*N);if(best)best.forEach(p=>o[p]=1);return o}
+function fillHoles(m){const bg=new Uint8Array(N*N),q=new Int32Array(N*N);let h=0,t=0;
+ const push=p=>{if(!m[p]&&!bg[p]){bg[p]=1;q[t++]=p}};
+ for(let i=0;i<N;i++){push(i);push((N-1)*N+i);push(i*N);push(i*N+N-1)}
+ while(h<t){const p=q[h++],x=p%N,y=(p/N)|0;if(x>0)push(p-1);if(x<N-1)push(p+1);if(y>0)push(p-N);if(y<N-1)push(p+N)}
+ return m.map((v,i)=>bg[i]?0:1)}
+
+function analyze(){
+  const img=sx.getImageData(0,0,N,N),d=img.data,o=sx.createImageData(N,N),n=N*N;
+  const Hh=new Float32Array(n),Ss=new Float32Array(n),Vv=new Float32Array(n),seed=new Uint8Array(n);
+  for(let i=0;i<n;i++){const [h,s,v]=hsv(d[i*4],d[i*4+1],d[i*4+2]);Hh[i]=h;Ss[i]=s;Vv[i]=v;
+    if(h>=70&&h<=165&&s>.25&&v>.2)seed[i]=1}
+  // Step 1: find the leaf only (largest green object, closed and hole-filled so spots inside stay part of the leaf)
+  let leaf=largest(seed);leaf=ero(dil(leaf,8),8);leaf=fillHoles(leaf);
+  let area=0;for(let i=0;i<n;i++)area+=leaf[i];
+  if(area<n*.02){reset2(d,o);return{noleaf:true}}
+  const core=ero(leaf,4); // ignore blurred leaf edge
+  // Step 2: inside the leaf, find uneven (non-green) spots
+  const raw=new Uint8Array(n);let cnt=0;
+  for(let i=0;i<n;i++){cnt+=core[i];if(core[i]){const h=Hh[i],healthy=h>=60&&h<=170&&Ss[i]>.12&&Vv[i]>.15;if(!healthy)raw[i]=1}}
+  const les=new Uint8Array(n);let L=0,dark=0,lite=0;
+  for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const i=y*N+x;if(!raw[i])continue;
+    const c=raw[i-1]+raw[i+1]+raw[i-N]+raw[i+N]+raw[i-N-1]+raw[i-N+1]+raw[i+N-1]+raw[i+N+1];
+    if(c>=3){les[i]=1;L++;Vv[i]<.55?dark++:lite++}}
+  // Output view: outside leaf dimmed, leaf outline cyan, spots red
+  for(let i=0;i<n;i++){const g=Math.round(.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2]);let r,gg,b;
+    if(!leaf[i]){r=gg=b=g*.2+25}else{r=g*.35+120;gg=g*.35+170;b=g*.35+120}
+    if(leaf[i]){const x=i%N,y=(i/N)|0;if(x>0&&!leaf[i-1]||x<N-1&&!leaf[i+1]||y>0&&!leaf[i-N]||y<N-1&&!leaf[i+N]){r=34;gg=211;b=238}}
+    if(les[i]){r=255;gg=50;b=80}
+    o.data[i*4]=r;o.data[i*4+1]=gg;o.data[i*4+2]=b;o.data[i*4+3]=255}
+  ox.putImageData(o,0,0);
+  const pct=cnt?L/cnt*100:0;
+  return{pct,cls:pct<2?'healthy':(dark>=lite?'blight':'rust')};
+}
+function reset2(d,o){for(let i=0;i<N*N;i++){const g=Math.round(.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2])*.2+25;o.data[i*4]=o.data[i*4+1]=o.data[i*4+2]=g;o.data[i*4+3]=255}ox.putImageData(o,0,0)}
+
+function show(){
+  if(last.noleaf){$('name').textContent='No leaf found';$('advice').textContent='Place one leaf on a plain background (paper or table) with good light, then try again.';$('pct').textContent='-';$('sev').textContent='-';$('fill').style.width='0';return}
+  const {pct,cls}=last,sev=cls==='healthy'?'None':pct<10?'Low':pct<25?'Moderate':'High';
+  $('name').textContent=D[cls].n[lang];$('advice').textContent=D[cls].a[lang];
+  $('pct').textContent=pct.toFixed(1)+'%';$('sev').textContent=sev;
+  const f=$('fill');f.style.width=Math.min(100,pct*2.5)+'%';f.style.background=cls==='healthy'?'var(--ok)':pct<10?'var(--warn)':'var(--bad)';
+}
+$('go').onclick=()=>{
+  if(!loaded){sample('blight')}
+  $('scan').style.display='inline';$('go').disabled=true;
+  setTimeout(()=>{last=analyze();$('scan').style.display='none';$('go').disabled=false;$('res').classList.add('show');show();$('res').scrollIntoView({behavior:'smooth',block:'nearest'})},900);
+};
+document.querySelectorAll('[data-l]').forEach(b=>b.onclick=()=>{
+  lang=b.dataset.l;document.querySelectorAll('[data-l]').forEach(x=>x.classList.toggle('on',x===b));if(last)show()});
+sample('blight');
+</script>
+</body>
+</html>
